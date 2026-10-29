@@ -27,6 +27,7 @@ pytest tests/ui --browser firefox --headed
 ```
 
 An HTML report is written to `reports/report.html`; failed UI tests keep a screenshot in `test-results/`.
+Every API test also records its requests and responses: expand a test row in the report to see them in its log, or read them all in `reports/api_responses.json` (passwords are masked).
 
 ## CI
 
