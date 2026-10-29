@@ -19,36 +19,71 @@ DEFAULT_RULE = r"[A-Za-z0-9]"
 FIELD_RULES = {
     "price": r"\d",  # keep the "Rs." currency prefix, mask only the amount
 }
+# Numeric columns: the masked number never starts with 0. Their values may repeat.
+NUMERIC_FIELDS = {"price"}
 
 LOWER = "abcdefghijklmnopqrstuvwxyz"
 UPPER = LOWER.upper()
 DIGITS = "0123456789"
+MAX_ATTEMPTS = 1000
 
 
-def _different_char(char, rng):
-    pool = LOWER if char in LOWER else UPPER if char in UPPER else DIGITS
+def _different_char(char, rng, allowed=None):
+    pool = LOWER if char in LOWER else UPPER if char in UPPER else (allowed or DIGITS)
     return rng.choice([c for c in pool if c != char])
 
 
-def mask_text(value, rng, rule=DEFAULT_RULE):
-    return re.sub(rule, lambda m: _different_char(m.group(), rng), value)
+def mask_text(value, rng, rule=DEFAULT_RULE, nonzero_first=False):
+    """Replace every regex match with a different character of the same kind."""
+    seen = []
+
+    def swap(match):
+        char = match.group()
+        first_digit = nonzero_first and char.isdigit() and not seen
+        seen.append(char)
+        return _different_char(char, rng, DIGITS[1:] if first_digit else None)
+
+    return re.sub(rule, swap, value)
 
 
-def _mask_value(value, key, rng):
+def _mask_value(value, key, rng, used):
     if isinstance(value, dict):
-        return {k: _mask_value(v, k, rng) if k not in RETAINED_FIELDS else v for k, v in value.items()}
+        return {
+            k: v if k in RETAINED_FIELDS else _mask_value(v, k, rng, used)
+            for k, v in value.items()
+        }
     if isinstance(value, list):
-        return [_mask_value(v, key, rng) for v in value]
-    if isinstance(value, str):
-        return mask_text(value, rng, FIELD_RULES.get(key, DEFAULT_RULE))
-    return value
+        return [_mask_value(v, key, rng, used) for v in value]
+    if not isinstance(value, str):
+        return value
+
+    rule = FIELD_RULES.get(key, DEFAULT_RULE)
+    if key in NUMERIC_FIELDS:
+        return mask_text(value, rng, rule, nonzero_first=True)
+
+    # String columns: random, and unique within the column across all masked records.
+    taken = used.setdefault(key, set())
+    for _ in range(MAX_ATTEMPTS):
+        candidate = mask_text(value, rng, rule)
+        if candidate not in taken:
+            taken.add(candidate)
+            return candidate
+    raise ValueError(f"could not generate a unique masked value for {key!r}")
 
 
-def mask_record(record, secret="test-masking-salt"):
-    """Return a masked deep copy of ``record``; the input is left untouched."""
+def mask_record(record, secret="test-masking-salt", used=None):
+    """Return a masked deep copy of ``record``; the input is left untouched.
+
+    Pass the same ``used`` dict for every record of a data set to keep string columns unique.
+    """
     seed = hashlib.sha256(f"{secret}:{record['id']}".encode()).hexdigest()
     rng = random.Random(seed)
-    return _mask_value(copy.deepcopy(record), None, rng)
+    return _mask_value(copy.deepcopy(record), None, rng, {} if used is None else used)
+
+
+def mask_records(records, secret="test-masking-salt"):
+    used = {}
+    return [mask_record(r, secret, used) for r in records]
 
 
 def flatten(record, prefix=""):

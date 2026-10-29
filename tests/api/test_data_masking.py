@@ -6,12 +6,20 @@ from pathlib import Path
 
 import pytest
 
-from utils.masking import comparison_html, flatten, mask_record, render_text_table
+from utils.masking import (
+    NUMERIC_FIELDS,
+    comparison_html,
+    flatten,
+    mask_record,
+    mask_records,
+    render_text_table,
+)
 
 pytestmark = pytest.mark.api
 
 COLUMNS = ["id", "name", "brand", "category.usertype.usertype", "category.category", "price"]
 MASKED_FIELDS = COLUMNS[1:]
+STRING_FIELDS = [c for c in MASKED_FIELDS if c not in NUMERIC_FIELDS]
 SAMPLE_SIZE = 20
 COMPARISON_FILE = Path("reports/masking_comparison.html")
 
@@ -26,7 +34,7 @@ def products(api_context):
 
 @pytest.fixture
 def masked_products(products):
-    return [mask_record(p) for p in products]
+    return mask_records(products)
 
 
 def test_get_products_response(api):
@@ -89,7 +97,7 @@ def test_no_original_value_appears_in_the_output(products, masked_products):
 
 
 def test_masking_is_deterministic(products):
-    assert [mask_record(p) for p in products] == [mask_record(p) for p in products]
+    assert mask_records(products) == mask_records(products)
 
 
 def test_masking_does_not_modify_the_input(products):
@@ -97,3 +105,23 @@ def test_masking_does_not_modify_the_input(products):
     for product in products:
         mask_record(product)
     assert products == snapshot
+
+
+def test_string_columns_are_unique_after_masking(masked_products):
+    """Names, brands, categories: every masked value in a column is unique and synthetic."""
+    flat = [flatten(p) for p in masked_products]
+    for field in STRING_FIELDS:
+        values = [row[field] for row in flat]
+        assert len(set(values)) == len(values), f"{field} has duplicate masked values"
+
+
+def test_masked_price_never_starts_with_zero(products, masked_products):
+    for original, masked in zip(products, masked_products):
+        amount = re.search(r"\d+", masked["price"]).group()
+        assert amount[0] != "0", f"id {original['id']}: {masked['price']}"
+
+
+def test_price_first_digit_is_never_zero_across_many_seeds(products):
+    for secret in (f"salt-{i}" for i in range(200)):
+        for product in mask_records(products, secret):
+            assert re.search(r"\d", product["price"]).group() != "0"

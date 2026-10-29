@@ -30,7 +30,8 @@ Uses GET only. Original data comes from `GET /productsList` (the response is sho
 | GET products response | 200, shown in the log |
 | Input vs masked output | side-by-side tables |
 | id | retained |
-| name, brand, category, price | every value differs from the input |
+| name, brand, category | random, unique per column, every value differs from the input |
+| price | digits randomised, never starts with 0 |
 | Format | same shape as the input (letters/digits/punctuation, `Rs.` prefix) |
 | Original values | do not appear in the masked output |
 | Same input twice | identical masked output |
