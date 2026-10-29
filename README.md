@@ -5,8 +5,9 @@ Playwright + pytest (Python) tests for https://automationexercise.com: browser U
 ```
 tests/
   conftest.py        shared fixtures (API client, unique user data)
-  api/               one spec file per API group
+  api/               one spec file per API group (+ data masking tests)
   ui/                browser tests
+utils/masking.py     synthetic customer-data masking (keeps the customer id)
 TEST_LIST.md         full list of scenarios
 ```
 

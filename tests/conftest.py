@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -20,7 +21,12 @@ class RecordingAPI:
         self.calls = calls
 
     def _send(self, method, path, **kwargs):
-        response = self._context.fetch(path, method=method, **kwargs)
+        # The site sometimes answers with an HTML "heavy load" page; retry until JSON comes back.
+        for attempt in range(4):
+            response = self._context.fetch(path, method=method, **kwargs)
+            if response.text().lstrip().startswith("{"):
+                break
+            time.sleep(2 * (attempt + 1))
         sent = kwargs.get("form") or kwargs.get("params") or {}
         call = {
             "request": f"{method} {API_URL}{path}",

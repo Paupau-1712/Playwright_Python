@@ -21,6 +21,21 @@ Source of the API scenarios: https://automationexercise.com/api_list
 | 13 | Update account | PUT `/updateAccount` | 200, User updated! | `test_user_account.py` |
 | 14 | Get user by email (+ negative) | GET `/getUserDetailByEmail` | 200 / 404 | `test_user_account.py` |
 
+### Data masking (`test_data_masking.py`)
+
+Original customer data (fetched live from `getUserDetailByEmail`) goes in; `utils/masking.py` returns a synthetic, deterministic copy.
+
+| Scenario | Expected |
+| --- | --- |
+| Customer id | retained unchanged |
+| Personal fields (name, email, address, birth date, ...) | replaced with synthetic values |
+| Original values | do not appear anywhere in the masked output |
+| Masked values | well-formed (email, zipcode, name consistency) |
+| Same customer twice | identical masked output |
+| Different customers | different masked output |
+| Input record | not modified |
+| Non-personal fields (title, country) | preserved |
+
 Note: this site always answers with HTTP 200; the real status is the `responseCode` field in the JSON body, which is what the tests assert.
 
 ## UI tests (`tests/ui/`)
