@@ -5,8 +5,9 @@ Playwright + pytest (Python) tests for https://automationexercise.com: browser U
 ```
 tests/
   conftest.py        shared fixtures (API client, unique user data)
-  api/               one spec file per API group
+  api/               one spec file per API group (+ GET-only data masking tests)
   ui/                browser tests
+utils/masking.py     regex masking (keeps the id)
 TEST_LIST.md         full list of scenarios
 ```
 
@@ -27,6 +28,7 @@ pytest tests/ui --browser firefox --headed
 ```
 
 An HTML report is written to `reports/report.html`; failed UI tests keep a screenshot in `test-results/`.
+Every API test also records its requests and responses: expand a test row in the report to see them in its log, or read them all in `reports/api_responses.json` (passwords are masked).
 
 ## CI
 

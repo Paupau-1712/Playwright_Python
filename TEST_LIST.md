@@ -21,6 +21,22 @@ Source of the API scenarios: https://automationexercise.com/api_list
 | 13 | Update account | PUT `/updateAccount` | 200, User updated! | `test_user_account.py` |
 | 14 | Get user by email (+ negative) | GET `/getUserDetailByEmail` | 200 / 404 | `test_user_account.py` |
 
+### Data masking (`test_data_masking.py`)
+
+Uses GET only. Original data comes from `GET /productsList` (the response is shown in the test log); `utils/masking.py` masks it with per-field regex rules (letters -> other letters, digits -> other digits, spaces/punctuation kept; `price` masks digits only). The product `id` is retained. A side-by-side comparison (text tables in the log, plus `reports/masking_comparison.html`) shows original vs masked.
+
+| Scenario | Expected |
+| --- | --- |
+| GET products response | 200, shown in the log |
+| Input vs masked output | side-by-side tables |
+| id | retained |
+| name, brand, category | random, unique per column, every value differs from the input |
+| price | digits randomised, never starts with 0 |
+| Format | same shape as the input (letters/digits/punctuation, `Rs.` prefix) |
+| Original values | do not appear in the masked output |
+| Same input twice | identical masked output |
+| Input record | not modified |
+
 Note: this site always answers with HTTP 200; the real status is the `responseCode` field in the JSON body, which is what the tests assert.
 
 ## UI tests (`tests/ui/`)
