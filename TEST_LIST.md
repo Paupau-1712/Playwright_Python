@@ -23,18 +23,18 @@ Source of the API scenarios: https://automationexercise.com/api_list
 
 ### Data masking (`test_data_masking.py`)
 
-Original customer data (fetched live from `getUserDetailByEmail`) goes in; `utils/masking.py` returns a synthetic, deterministic copy.
+Uses GET only. Original data comes from `GET /productsList` (the response is shown in the test log); `utils/masking.py` masks it with per-field regex rules (letters -> other letters, digits -> other digits, spaces/punctuation kept; `price` masks digits only). The product `id` is retained. A side-by-side comparison (text tables in the log, plus `reports/masking_comparison.html`) shows original vs masked.
 
 | Scenario | Expected |
 | --- | --- |
-| Customer id | retained unchanged |
-| Personal fields (name, email, address, birth date, ...) | replaced with synthetic values |
-| Original values | do not appear anywhere in the masked output |
-| Masked values | well-formed (email, zipcode, name consistency) |
-| Same customer twice | identical masked output |
-| Different customers | different masked output |
+| GET products response | 200, shown in the log |
+| Input vs masked output | side-by-side tables |
+| id | retained |
+| name, brand, category, price | every value differs from the input |
+| Format | same shape as the input (letters/digits/punctuation, `Rs.` prefix) |
+| Original values | do not appear in the masked output |
+| Same input twice | identical masked output |
 | Input record | not modified |
-| Non-personal fields (title, country) | preserved |
 
 Note: this site always answers with HTTP 200; the real status is the `responseCode` field in the JSON body, which is what the tests assert.
 

@@ -1,69 +1,99 @@
-"""Data masking: original customer data in, synthetic data out, customer id retained."""
+"""Data masking on a GET response: original in, regex-masked synthetic data out, id retained."""
 
 import json
 import re
+from pathlib import Path
 
 import pytest
 
-from utils.masking import mask_customer
+from utils.masking import comparison_html, flatten, mask_record, render_text_table
 
 pytestmark = pytest.mark.api
 
-PII_FIELDS = [
-    "name", "email", "first_name", "last_name", "company", "address1", "address2",
-    "city", "state", "zipcode", "birth_day", "birth_month", "birth_year",
-]  # fmt: skip
+COLUMNS = ["id", "name", "brand", "category.usertype.usertype", "category.category", "price"]
+MASKED_FIELDS = COLUMNS[1:]
+SAMPLE_SIZE = 20
+COMPARISON_FILE = Path("reports/masking_comparison.html")
+
+
+@pytest.fixture(scope="module")
+def products(api_context):
+    """Original records straight from GET /productsList."""
+    body = api_context.get("productsList").json()
+    assert body["responseCode"] == 200
+    return body["products"][:SAMPLE_SIZE]
 
 
 @pytest.fixture
-def original(api, created_user):
-    """The original customer record, as returned by the live API."""
-    body = api.get("getUserDetailByEmail", params={"email": created_user["email"]}).json()
+def masked_products(products):
+    return [mask_record(p) for p in products]
+
+
+def test_get_products_response(api):
+    """Fetch the original data with GET only and show the response."""
+    response = api.get("productsList")
+    assert response.status == 200
+    body = response.json()
     assert body["responseCode"] == 200
-    return body["user"]
+    print(json.dumps(body["products"][:3], indent=2))
+    assert len(body["products"]) > 0
 
 
-def test_customer_id_is_retained(original):
-    masked = mask_customer(original)
-    assert masked["id"] == original["id"]
+def test_input_and_masked_output_comparison(products, masked_products):
+    """Show original vs masked side by side, like a production-to-masked comparison."""
+    original_rows = [flatten(p) for p in products]
+    masked_rows = [flatten(p) for p in masked_products]
+
+    print(render_text_table("FROM PRODUCTION DATA", original_rows, COLUMNS))
+    print()
+    print(render_text_table("TO SYNTHETICALLY IDENTICAL MASKED DATA", masked_rows, COLUMNS))
+
+    COMPARISON_FILE.parent.mkdir(exist_ok=True)
+    COMPARISON_FILE.write_text(comparison_html(original_rows, masked_rows, COLUMNS))
+
+    assert len(original_rows) == len(masked_rows) == len(products)
 
 
-def test_personal_fields_are_replaced_with_synthetic_data(original):
-    masked = mask_customer(original)
-    for field in PII_FIELDS:
-        assert masked[field] != original[field], f"{field} was not masked"
+def test_id_is_retained(products, masked_products):
+    assert [m["id"] for m in masked_products] == [p["id"] for p in products]
 
 
-def test_no_original_value_leaks_into_output(original):
-    masked = json.dumps(mask_customer(original))
-    for field in ["name", "email", "first_name", "last_name", "company", "address1"]:
-        assert original[field] not in masked, f"original {field} leaked"
+def test_every_masked_field_differs_from_the_input(products, masked_products):
+    for original, masked in zip(products, masked_products):
+        o, m = flatten(original), flatten(masked)
+        for field in MASKED_FIELDS:
+            assert m[field] != o[field], f"id {original['id']}: {field} was not masked"
 
 
-def test_masked_data_is_well_formed(original):
-    masked = mask_customer(original)
-    assert re.fullmatch(r"[^@\s]+@masked\.example\.com", masked["email"])
-    assert masked["name"] == f"{masked['first_name']} {masked['last_name']}"
-    assert re.fullmatch(r"\d{5}", masked["zipcode"])
-    assert 1 <= int(masked["birth_day"]) <= 28
+def test_masked_values_keep_the_original_format(products, masked_products):
+    """Same shape: letters stay letters, digits stay digits, punctuation/spaces untouched."""
+
+    def shape(value):
+        return re.sub(r"[A-Z]", "A", re.sub(r"[a-z]", "a", re.sub(r"\d", "9", value)))
+
+    for original, masked in zip(products, masked_products):
+        o, m = flatten(original), flatten(masked)
+        for field in MASKED_FIELDS:
+            if field == "price":
+                assert m[field].startswith("Rs. ")
+                assert shape(m[field]) == shape(o[field])
+            else:
+                assert shape(m[field]) == shape(o[field]), field
 
 
-def test_masking_is_deterministic_per_customer(original):
-    assert mask_customer(original) == mask_customer(original)
+def test_no_original_value_appears_in_the_output(products, masked_products):
+    output = json.dumps(masked_products)
+    for product in products:
+        assert product["name"] not in output
+        assert product["price"] not in output
 
 
-def test_different_customers_get_different_masked_data(original):
-    other = {**original, "id": original["id"] + 1}
-    assert mask_customer(other)["email"] != mask_customer(original)["email"]
+def test_masking_is_deterministic(products):
+    assert [mask_record(p) for p in products] == [mask_record(p) for p in products]
 
 
-def test_masking_does_not_modify_the_original(original):
-    snapshot = dict(original)
-    mask_customer(original)
-    assert original == snapshot
-
-
-def test_non_personal_fields_are_preserved(original):
-    masked = mask_customer(original)
-    assert masked["title"] == original["title"]
-    assert masked["country"] == original["country"]
+def test_masking_does_not_modify_the_input(products):
+    snapshot = json.loads(json.dumps(products))
+    for product in products:
+        mask_record(product)
+    assert products == snapshot
