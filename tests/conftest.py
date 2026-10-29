@@ -3,7 +3,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-from pytest_html import extras
 
 BASE_URL = "https://automationexercise.com"
 API_URL = f"{BASE_URL}/api/"
@@ -23,13 +22,17 @@ class RecordingAPI:
     def _send(self, method, path, **kwargs):
         response = self._context.fetch(path, method=method, **kwargs)
         sent = kwargs.get("form") or kwargs.get("params") or {}
-        self.calls.append(
-            {
-                "request": f"{method} {API_URL}{path}",
-                "sent": {k: ("***" if k == "password" else v) for k, v in sent.items()},
-                "http_status": response.status,
-                "response": response.text(),
-            }
+        call = {
+            "request": f"{method} {API_URL}{path}",
+            "sent": {k: ("***" if k == "password" else v) for k, v in sent.items()},
+            "http_status": response.status,
+            "response": response.text(),
+        }
+        self.calls.append(call)
+        # Captured stdout is shown in each test's log in the HTML report, even when it passes.
+        print(
+            f"{call['request']}\nsent: {json.dumps(call['sent'])}\n"
+            f"HTTP {call['http_status']}\n{call['response']}\n"
         )
         return response
 
@@ -63,20 +66,6 @@ def api_context(playwright):
 def api(api_context, request):
     calls = all_api_calls.setdefault(request.node.nodeid, [])
     return RecordingAPI(api_context, calls)
-
-
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    outcome = yield
-    report = outcome.get_result()
-    calls = all_api_calls.get(item.nodeid)
-    if call.when == "call" and calls:
-        text = "\n\n".join(
-            f"{c['request']}\nsent: {json.dumps(c['sent'])}\n"
-            f"HTTP {c['http_status']}\n{c['response']}"
-            for c in calls
-        )
-        report.extras = getattr(report, "extras", []) + [extras.text(text, name="API responses")]
 
 
 def pytest_sessionfinish(session):
