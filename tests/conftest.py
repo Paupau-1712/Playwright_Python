@@ -1,9 +1,49 @@
+import json
 import uuid
+from pathlib import Path
 
 import pytest
+from pytest_html import extras
 
 BASE_URL = "https://automationexercise.com"
 API_URL = f"{BASE_URL}/api/"
+RESPONSES_FILE = Path("reports/api_responses.json")
+
+# test node id -> list of recorded API calls, written to RESPONSES_FILE at the end
+all_api_calls = {}
+
+
+class RecordingAPI:
+    """Wraps an APIRequestContext and records every request/response pair."""
+
+    def __init__(self, context, calls):
+        self._context = context
+        self.calls = calls
+
+    def _send(self, method, path, **kwargs):
+        response = self._context.fetch(path, method=method, **kwargs)
+        sent = kwargs.get("form") or kwargs.get("params") or {}
+        self.calls.append(
+            {
+                "request": f"{method} {API_URL}{path}",
+                "sent": {k: ("***" if k == "password" else v) for k, v in sent.items()},
+                "http_status": response.status,
+                "response": response.text(),
+            }
+        )
+        return response
+
+    def get(self, path, **kwargs):
+        return self._send("GET", path, **kwargs)
+
+    def post(self, path, **kwargs):
+        return self._send("POST", path, **kwargs)
+
+    def put(self, path, **kwargs):
+        return self._send("PUT", path, **kwargs)
+
+    def delete(self, path, **kwargs):
+        return self._send("DELETE", path, **kwargs)
 
 
 @pytest.fixture(scope="session")
@@ -12,11 +52,37 @@ def base_url():
 
 
 @pytest.fixture(scope="session")
-def api(playwright):
+def api_context(playwright):
     """Playwright APIRequestContext pointed at the Automation Exercise API."""
     context = playwright.request.new_context(base_url=API_URL, timeout=60_000)
     yield context
     context.dispose()
+
+
+@pytest.fixture
+def api(api_context, request):
+    calls = all_api_calls.setdefault(request.node.nodeid, [])
+    return RecordingAPI(api_context, calls)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    calls = all_api_calls.get(item.nodeid)
+    if call.when == "call" and calls:
+        text = "\n\n".join(
+            f"{c['request']}\nsent: {json.dumps(c['sent'])}\n"
+            f"HTTP {c['http_status']}\n{c['response']}"
+            for c in calls
+        )
+        report.extras = getattr(report, "extras", []) + [extras.text(text, name="API responses")]
+
+
+def pytest_sessionfinish(session):
+    if all_api_calls:
+        RESPONSES_FILE.parent.mkdir(exist_ok=True)
+        RESPONSES_FILE.write_text(json.dumps(all_api_calls, indent=2))
 
 
 @pytest.fixture
